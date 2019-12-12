@@ -1,4 +1,3 @@
-
 #ifndef __ADDINNATIVE_H__
 #define __ADDINNATIVE_H__
 
@@ -10,6 +9,7 @@
 #include "AddInDefBase.h"
 #include "IMemoryManager.h"
 
+#include <vector>
 ///////////////////////////////////////////////////////////////////////////////
 uint32_t convToShortWchar(WCHAR_T** Dest, const wchar_t* Source, uint32_t len = 0);
 uint32_t convFromShortWchar(wchar_t** Dest, const WCHAR_T* Source, uint32_t len = 0);
@@ -19,10 +19,13 @@ const WCHAR_T* GetClassNames();
 class CAddInNative : public IComponentBase
 {
 public:
-	IDispatch * IAddInDefBase_point;
-	IMemoryManager* memManager;
-	IAddInDefBase *pAsyncEvent = NULL;
-	void beginGivesMePhoto();
+    IDispatch* IAddInDefBase_point;
+    IMemoryManager* memManager;
+    IAddInDefBase* pAsyncEvent = NULL;
+    int * cloneToEnd;
+    void beginGivesMePhoto();
+    void _stopGetPhoto();
+    std::thread::id workThread;
     enum Props
     {
         eLastProp      // Always last
@@ -30,7 +33,8 @@ public:
 
     enum Methods
     {
-		beginGiveMePhoto,
+        beginGiveMePhoto,
+        stopGetPhoto,
         eLastMethod      // Always last
     };
 
@@ -52,17 +56,17 @@ public:
     virtual bool ADDIN_API IsPropWritable(const long lPropNum);
     virtual long ADDIN_API GetNMethods();
     virtual long ADDIN_API FindMethod(const WCHAR_T* wsMethodName);
-    virtual const WCHAR_T* ADDIN_API GetMethodName(const long lMethodNum, 
-                            const long lMethodAlias);
+    virtual const WCHAR_T* ADDIN_API GetMethodName(const long lMethodNum,
+        const long lMethodAlias);
     virtual long ADDIN_API GetNParams(const long lMethodNum);
     virtual bool ADDIN_API GetParamDefValue(const long lMethodNum, const long lParamNum,
-                            tVariant *pvarParamDefValue);
+        tVariant* pvarParamDefValue);
     virtual bool ADDIN_API HasRetVal(const long lMethodNum);
     virtual bool ADDIN_API CallAsProc(const long lMethodNum,
-                    tVariant* paParams, const long lSizeArray);
+        tVariant* paParams, const long lSizeArray);
     virtual bool ADDIN_API CallAsFunc(const long lMethodNum,
-                tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
-    operator IComponentBase*() { return (IComponentBase*)this; }
+        tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray);
+    operator IComponentBase* () { return (IComponentBase*)this; }
     // LocaleBase
     virtual void ADDIN_API SetLocale(const WCHAR_T* loc);
 private:
