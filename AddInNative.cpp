@@ -101,11 +101,6 @@ void MySecondFunc(CAddInNative* main) {
 			MessageBox(NULL, "Frame is empty.", "Frame error.", MB_OK);
 			break;
 		}
-		//imshow("this is you, smile! :)", frame);
-		//if (waitKey(10) == 27) {
-		//	std::cout << "Break. Press ESC" << std::endl;
-		//	break; // stop capturing by pressing ESC 
-		//}
 		counter++;
 		try {
 			std::string path = "C:/imgs/img" + std::to_string(counter) + ".jpg";
