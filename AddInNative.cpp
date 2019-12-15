@@ -1,4 +1,4 @@
-п»ї#include "stdafx.h"
+#include "stdafx.h"
 
 #ifdef __linux__
 #include <unistd.h>
@@ -13,24 +13,23 @@
 #include <fstream>
 #include <string>
 #include <mutex>
-std::mutex g_num_mutex;
-std::mutex lastThreadWork;
+
+std::mutex saveImageMutex;
+std::mutex StopMutex;
+
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 using namespace cv;
 
-#include <chrono>
 void myLog(std::string text) {
 	/*
 	std::ofstream outfile;
 	outfile.open("D:/log.txt", std::ios_base::app);
-
 	time_t     now = time(0);
 	struct tm  tstruct;
 	char       buf[80];
 	tstruct = *localtime(&now);
 	strftime(buf, sizeof(buf), "%Y.%m.%d %H:%M:%S", &tstruct);
-
 	std::string String_now = buf;
 	outfile << String_now <<" | "<< text << std::endl;
 	outfile.close();
@@ -74,114 +73,158 @@ const WCHAR_T* GetClassNames()
 
 }
 
+
 void MySecondFunc(CAddInNative* main) {
 	VideoCapture cap;
 	if (!cap.open(0)) {
-		MessageBox(NULL, "Not open camera. Maybe not found.", "Camera error. Not open.", MB_OK);
+		MessageBox(NULL, "Not open camera. Maybe not found. Need restart.", "Camera error. Not open. Need restart.", MB_OK);
 		return;
 	}
-	int counter = 0;
-	lastThreadWork.lock();
-	while(true)
+	while (true)
 	{
+		bool needBreak = false;
+		StopMutex.lock();
+		if (false==main->isWork) {
+			needBreak = true;
+		} 
+		StopMutex.unlock();
+		if (needBreak) {
+			break;
+		}
+
 		Mat frame;
-		//cap >> frame;
-		if (!cap.isOpened())  // if not success, exit program
+		if (!cap.isOpened())
 		{
-			MessageBox(NULL, "Camera is closed. Camera not is opened.", "Camera error.", MB_OK);
+			MessageBox(NULL, "Camera is closed. Camera not is opened.", "Camera error. Need restart.", MB_OK);
 			break;
 		}
-		bool bSuccess = cap.read(frame); // read a new frame from video
-		if (!bSuccess) //if not success, break loop
+
+		bool bSuccess = cap.read(frame);
+		if (!bSuccess)
 		{
-			MessageBox(NULL, "Cannot read a frame from video file. Maybe camera not connecter to computer.", "Camera error.", MB_OK);
+			MessageBox(NULL, "Cannot read a frame from video file. Maybe camera not connecter to computer.", "Camera error. Need restart.", MB_OK);
 			break;
 		}
+
 		if (frame.empty()) {
-			MessageBox(NULL, "Frame is empty.", "Frame error.", MB_OK);
+			MessageBox(NULL, "Frame is empty. Need restart.", "Frame error.", MB_OK);
 			break;
 		}
-		counter++;
 		try {
-			std::string path = "C:/imgs/img" + std::to_string(counter) + ".jpg";
-			bool result_save = imwrite(path, frame);
-			if (!result_save) {
-				MessageBox(NULL, "Cannot save image in ""C:/imgs/img/imgN.jpg"".", "Image save error.", MB_OK);
-				break;
-			}
 			myLog("save image");
+			wchar_t* who = L"ComponentNative", *what = L"Timer";
 
-			wchar_t* who = L"ComponentNative", * what = L"Timer";
+			//wchar_t buffer[1024];
+			//std::wstring wstr(path.begin(), path.end());
+			//std::size_t length = wstr.copy(buffer, 1023, 0);
+			//buffer[length] = '\0';
 
-			wchar_t buffer[1024];
-			std::wstring wstr(path.begin(), path.end());
-			std::size_t length = wstr.copy(buffer, 1023, 0);
-			buffer[length] = '\0';
+			std::vector<uchar> buff;
+			std::vector<int> param(2);
+			param[0] = cv::IMWRITE_JPEG_QUALITY;
+			param[1] = 100;//default(95) 0-100
+			cv::imencode(".jpg", frame, buff, param);
 
-			g_num_mutex.lock();
-			int test = *main->cloneToEnd;
-			g_num_mutex.unlock();
-			if (9 != test) {
-				//MessageBox(NULL, "Camera stop.", "End thread.", MB_OK);
-				myLog("Close thread. Stop thread.");
-				break;
+			saveImageMutex.lock();
+			main->M_buff.clear();
+			for (char i : buff) {
+				main->M_buff.push_back(i);
 			}
-			if (8 == test) {
-				//MessageBox(NULL, "Camera stop.", "End thread.", MB_OK);
-				myLog("Close thread. Need close no new.");
-				break;
+			saveImageMutex.unlock();
+			/*
+			std::ofstream outfile;
+			outfile.open("D:/log2.jpg", std::ios_base::binary | std::ios_base::out);
+			for (char i : buff) {
+				outfile << i;
 			}
-			g_num_mutex.lock();
-			bool res = (main->workThread != std::this_thread::get_id());
-			g_num_mutex.unlock();
-			if (res) {
-				myLog("Close thread. Not this work thread. Thread id not work thread id.");
-				//MessageBox(NULL, "Not this thread", "End thread.", MB_OK);
-				break;
-			}
+			outfile.close();
+			*/
+
+			std::wstring wstr = L"next";
+			main->pAsyncEvent->ExternalEvent(who, what, wstr.data());
+
 			
-			main->pAsyncEvent->ExternalEvent(who, what, buffer);
+			
 		}
 		catch (std::runtime_error & ex) {
 			MessageBox(NULL, "Exception converting image to PNG format. Something wrong with frame in save time.", "Its runtime_error.", MB_OK);
-			break;
-		}
-
-		if (counter >= 100) {
-			counter = 0;
 		}
 	}
 	myLog("This thread function close.");
-	lastThreadWork.unlock();
+}
+
+
+void CAddInNative::_giveNextImage(tVariant * val) {
+
+	/*
+	//Так можно вернуть истину или ложь
+	TV_VT(val) = VTYPE_BOOL; // действующий тип данных
+	TV_BOOL(val) = false; // устанавливаем само значение
+   */
+
+   /*
+   //Так можно вернуть строку
+  std::string str = "w1234r";
+  char* t1 = str.data();
+  TV_VT(val) = VTYPE_PSTR;
+  memManager->AllocMemory((void**)&t1, (str.length() + 1) * sizeof(WCHAR_T));
+  memcpy(t1, str.c_str(), (str.length() + 1) * sizeof(WCHAR_T));
+  val->pstrVal = t1;
+  val->strLen = str.length();
+  */
+
+	
+	
+	std::string str = "";
+
+	bool zero = false;
+
+	saveImageMutex.lock();
+	for (uchar i : M_buff) {
+		str.push_back(i);
+	}
+	if (M_buff.size() == 0) {
+		zero = true;
+	}
+	saveImageMutex.unlock();
+
+	if (zero) {
+		return;
+	}
+	
+	char* t1 = str.data();
+	//memManager->AllocMemory((void**)&t1, (str.length() + 1) * sizeof(WCHAR_T));
+	memManager->AllocMemory((void**)&t1, (str.length() + 1) * sizeof(char));
+	//memcpy(t1, str.c_str(), (str.length() + 1) * sizeof(WCHAR_T));
+	memcpy(t1, str.c_str(), (str.length() + 1) * sizeof(char));
+
+	TV_VT(val) = VTYPE_BLOB;
+	val->pstrVal = t1;
+	//val->strLen = str.length();
+	val->strLen = (str.length() + 1) * sizeof(char);
+	
 }
 
 void CAddInNative::beginGivesMePhoto()
 {
 	myLog("beginGivesMePhoto begin");
-	g_num_mutex.lock();
-	*cloneToEnd = 8;
-	g_num_mutex.unlock();
-
-	lastThreadWork.lock();
-	myLog("last thread lock check before start next.");
-	lastThreadWork.unlock();
-
-	g_num_mutex.lock();
-	*cloneToEnd = 9;
-	g_num_mutex.unlock();
-
-	std::thread first(MySecondFunc, this);
-	workThread = first.get_id();
-	first.detach();
+	if (fut.valid()) {
+		fut.wait();
+	}
+	//_stopGetPhoto();
+	//std::future<void> fut = std::async(MySecondFunc, this);
+	fut= std::async(MySecondFunc, this);
 	myLog("beginGivesMePhoto end");
 }
 
 void CAddInNative::_stopGetPhoto()
 {
 	myLog("stopGetPhoto begin");
-	g_num_mutex.lock();
-	*cloneToEnd = 1;
-	g_num_mutex.unlock();
+
+	StopMutex.lock();
+	this->isWork = false;
+	StopMutex.unlock();
+	fut.wait();
 	myLog("stopGetPhoto end");
 }
 
@@ -192,13 +235,18 @@ void CAddInNative::_stopGetPhoto()
 CAddInNative::CAddInNative()
 {
 	myLog("CAddInNative");
-	cloneToEnd = new int(9);
 }
 //---------------------------------------------------------------------------//
 CAddInNative::~CAddInNative()
 {
-	myLog("~CAddInNative");
-	*cloneToEnd =2;
+	myLog("~CAddInNative begin");
+
+	StopMutex.lock();
+	this->isWork = false;
+	StopMutex.unlock();
+
+	fut.wait();
+	myLog("~CAddInNative end");
 }
 //---------------------------------------------------------------------------//
 bool CAddInNative::Init(void* pConnection)
@@ -206,7 +254,6 @@ bool CAddInNative::Init(void* pConnection)
 	myLog("Init");
 	IAddInDefBase_point = (IDispatch*)pConnection;
 	pAsyncEvent = (IAddInDefBase*)pConnection;
-	*cloneToEnd = 9;
 	return true;
 }
 //---------------------------------------------------------------------------//
@@ -290,7 +337,6 @@ long CAddInNative::GetNMethods()
 //---------------------------------------------------------------------------//
 long CAddInNative::FindMethod(const WCHAR_T* wsMethodName)
 {
-	myLog("FindMethod");
 	wchar_t* tempString = 0;
 	convFromShortWchar(&tempString, wsMethodName);
 	std::wstring wstring(tempString);
@@ -306,13 +352,18 @@ long CAddInNative::FindMethod(const WCHAR_T* wsMethodName)
 		myLog("FindMethod return:" + std::to_string(result));
 		return result;
 	}
+	else if ("giveNextImage" == methodMame) {
+		int result = CAddInNative::Methods::giveNextImage;
+		myLog("FindMethod return:" + std::to_string(result));
+		return result;
+	}
 	return -1;
 }
 //---------------------------------------------------------------------------//
 const WCHAR_T* CAddInNative::GetMethodName(const long lMethodNum,
 	const long lMethodAlias)
 {
-	myLog("GetMethodName");
+	myLog("GetMethodName | lMethodNum:"+std::to_string(lMethodNum)+" | lMethodAlias:"+std::to_string(lMethodAlias));
 	return 0;
 }
 //---------------------------------------------------------------------------//
@@ -345,6 +396,8 @@ bool CAddInNative::HasRetVal(const long lMethodNum)
 		return false;
 	case CAddInNative::CAddInNative::stopGetPhoto:
 		return false;
+	case CAddInNative::CAddInNative::giveNextImage:
+		return true;
 	}
 	return false;
 }
@@ -370,7 +423,14 @@ bool CAddInNative::CallAsProc(const long lMethodNum,
 bool CAddInNative::CallAsFunc(const long lMethodNum,
 	tVariant* pvarRetValue, tVariant* paParams, const long lSizeArray)
 {
-	myLog("CallAsFunc");
+	myLog("CallAsFunc get:" + std::to_string(lMethodNum));
+	switch (lMethodNum)
+	{
+	case CAddInNative::Methods::giveNextImage:
+		myLog("CallAsFunc need call 'giveNextImage'.");
+		this->_giveNextImage(pvarRetValue);
+		return true;
+	}
 	return false;
 }
 //---------------------------------------------------------------------------//
