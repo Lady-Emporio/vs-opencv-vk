@@ -1,4 +1,4 @@
-#include "stdafx.h"
+ï»¿#include "stdafx.h"
 
 #ifdef __linux__
 #include <unistd.h>
@@ -14,15 +14,15 @@
 #include <string>
 #include <mutex>
 
-std::mutex saveImageMutex;
-std::mutex StopMutex;
+std::timed_mutex  saveImageMutex;
+std::timed_mutex  StopMutex;
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 using namespace cv;
 
 void myLog(std::string text) {
-	/*
+	
 	std::ofstream outfile;
 	outfile.open("D:/log.txt", std::ios_base::app);
 	time_t     now = time(0);
@@ -33,7 +33,7 @@ void myLog(std::string text) {
 	std::string String_now = buf;
 	outfile << String_now <<" | "<< text << std::endl;
 	outfile.close();
-	*/
+	
 }
 
 static const wchar_t g_kClassNames[] = L"CAddInNative"; //|OtherClass1|OtherClass2";
@@ -83,10 +83,13 @@ void MySecondFunc(CAddInNative* main) {
 	while (true)
 	{
 		bool needBreak = false;
-		StopMutex.lock();
-		if (false==main->isWork) {
+		if(!StopMutex.try_lock_for(std::chrono::seconds(5))) {
+			MessageBox(NULL, "Process error. Blocking. Need restart.", "Process error. Need restart.", MB_OK);
+			return;
+		}
+		if (false == main->isWork) {
 			needBreak = true;
-		} 
+		}
 		StopMutex.unlock();
 		if (needBreak) {
 			break;
@@ -125,7 +128,11 @@ void MySecondFunc(CAddInNative* main) {
 			param[1] = 100;//default(95) 0-100
 			cv::imencode(".jpg", frame, buff, param);
 
-			saveImageMutex.lock();
+
+			if (!saveImageMutex.try_lock_for(std::chrono::seconds(5))) {
+				MessageBox(NULL, "Process error. Blocking. Need restart.", "Process error. Need restart.", MB_OK);
+				return;
+			}
 			main->M_buff.clear();
 			for (char i : buff) {
 				main->M_buff.push_back(i);
@@ -141,10 +148,19 @@ void MySecondFunc(CAddInNative* main) {
 			*/
 
 			std::wstring wstr = L"next";
-			main->pAsyncEvent->ExternalEvent(who, what, wstr.data());
+			HRESULT res=main->pAsyncEvent->ExternalEvent(L"ComponentNative", L"Timer", L"next");
+			switch (res) {
+			case S_OK:
+				break;
+			case E_FAIL:
+				MessageBox(NULL, "E_FAIL.", "E_FAIL.", MB_OK);
+				break;
+			case E_OUTOFMEMORY:
+				MessageBox(NULL, "E_OUTOFMEMORY.", "E_OUTOFMEMORY.", MB_OK);
+				break;
+			}
 
-			
-			
+
 		}
 		catch (std::runtime_error & ex) {
 			MessageBox(NULL, "Exception converting image to PNG format. Something wrong with frame in save time.", "Its runtime_error.", MB_OK);
@@ -157,13 +173,13 @@ void MySecondFunc(CAddInNative* main) {
 void CAddInNative::_giveNextImage(tVariant * val) {
 
 	/*
-	//Òàê ìîæíî âåðíóòü èñòèíó èëè ëîæü
-	TV_VT(val) = VTYPE_BOOL; // äåéñòâóþùèé òèï äàííûõ
-	TV_BOOL(val) = false; // óñòàíàâëèâàåì ñàìî çíà÷åíèå
+	//Ã’Ã Ãª Ã¬Ã®Ã¦Ã­Ã® Ã¢Ã¥Ã°Ã­Ã³Ã²Ã¼ Ã¨Ã±Ã²Ã¨Ã­Ã³ Ã¨Ã«Ã¨ Ã«Ã®Ã¦Ã¼
+	TV_VT(val) = VTYPE_BOOL; // Ã¤Ã¥Ã©Ã±Ã²Ã¢Ã³Ã¾Ã¹Ã¨Ã© Ã²Ã¨Ã¯ Ã¤Ã Ã­Ã­Ã»Ãµ
+	TV_BOOL(val) = false; // Ã³Ã±Ã²Ã Ã­Ã Ã¢Ã«Ã¨Ã¢Ã Ã¥Ã¬ Ã±Ã Ã¬Ã® Ã§Ã­Ã Ã·Ã¥Ã­Ã¨Ã¥
    */
 
    /*
-   //Òàê ìîæíî âåðíóòü ñòðîêó
+   //Ã’Ã Ãª Ã¬Ã®Ã¦Ã­Ã® Ã¢Ã¥Ã°Ã­Ã³Ã²Ã¼ Ã±Ã²Ã°Ã®ÃªÃ³
   std::string str = "w1234r";
   char* t1 = str.data();
   TV_VT(val) = VTYPE_PSTR;
@@ -173,13 +189,16 @@ void CAddInNative::_giveNextImage(tVariant * val) {
   val->strLen = str.length();
   */
 
-	
-	
+
+
 	std::string str = "";
 
 	bool zero = false;
 
-	saveImageMutex.lock();
+	if (!saveImageMutex.try_lock_for(std::chrono::seconds(5))) {
+		MessageBox(NULL, "Process error. Blocking. Need restart.", "Process error. Need restart.", MB_OK);
+		return;
+	}
 	for (uchar i : M_buff) {
 		str.push_back(i);
 	}
@@ -189,31 +208,41 @@ void CAddInNative::_giveNextImage(tVariant * val) {
 	saveImageMutex.unlock();
 
 	if (zero) {
+		myLog("_giveNextImage zero");
 		return;
 	}
 	
-	char* t1 = str.data();
+	char* t1;
 	//memManager->AllocMemory((void**)&t1, (str.length() + 1) * sizeof(WCHAR_T));
-	memManager->AllocMemory((void**)&t1, (str.length() + 1) * sizeof(char));
+	if(!memManager->AllocMemory((void**)&t1, (str.length() + 1) * sizeof(char))) {
+		MessageBox(NULL, "Memory error. Need Full restart 1C.", "Memory error.", MB_OK);
+	}
 	//memcpy(t1, str.c_str(), (str.length() + 1) * sizeof(WCHAR_T));
 	memcpy(t1, str.c_str(), (str.length() + 1) * sizeof(char));
-
+	
 	TV_VT(val) = VTYPE_BLOB;
 	val->pstrVal = t1;
 	//val->strLen = str.length();
 	val->strLen = (str.length() + 1) * sizeof(char);
-	
+	myLog("_giveNextImage end");
 }
 
 void CAddInNative::beginGivesMePhoto()
 {
 	myLog("beginGivesMePhoto begin");
 	if (fut.valid()) {
+		if (!StopMutex.try_lock_for(std::chrono::seconds(5))) {
+			MessageBox(NULL, "Process error. Blocking. Need restart.", "Process error. Need restart.", MB_OK);
+			return;
+		}
+		this->isWork = false;
+		StopMutex.unlock();
 		fut.wait();
+		this->isWork = true;
 	}
 	//_stopGetPhoto();
 	//std::future<void> fut = std::async(MySecondFunc, this);
-	fut= std::async(MySecondFunc, this);
+	fut = std::async(MySecondFunc, this);
 	myLog("beginGivesMePhoto end");
 }
 
@@ -221,7 +250,10 @@ void CAddInNative::_stopGetPhoto()
 {
 	myLog("stopGetPhoto begin");
 
-	StopMutex.lock();
+	if (!StopMutex.try_lock_for(std::chrono::seconds(5))) {
+		MessageBox(NULL, "Process error. Blocking. Need restart.", "Process error. Need restart.", MB_OK);
+		return;
+	}
 	this->isWork = false;
 	StopMutex.unlock();
 	fut.wait();
@@ -241,7 +273,10 @@ CAddInNative::~CAddInNative()
 {
 	myLog("~CAddInNative begin");
 
-	StopMutex.lock();
+	if (!StopMutex.try_lock_for(std::chrono::seconds(5))) {
+		MessageBox(NULL, "Process error. Blocking. Need restart.", "Process error. Need restart.", MB_OK);
+		return;
+	}
 	this->isWork = false;
 	StopMutex.unlock();
 
@@ -363,7 +398,7 @@ long CAddInNative::FindMethod(const WCHAR_T* wsMethodName)
 const WCHAR_T* CAddInNative::GetMethodName(const long lMethodNum,
 	const long lMethodAlias)
 {
-	myLog("GetMethodName | lMethodNum:"+std::to_string(lMethodNum)+" | lMethodAlias:"+std::to_string(lMethodAlias));
+	myLog("GetMethodName | lMethodNum:" + std::to_string(lMethodNum) + " | lMethodAlias:" + std::to_string(lMethodAlias));
 	return 0;
 }
 //---------------------------------------------------------------------------//
